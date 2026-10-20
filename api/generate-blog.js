@@ -5,14 +5,108 @@ export default async function handler(req, res) {
     const clientSecret = process.env.SHOPIFY_CLIENT_SECRET;
     const openAiKey = process.env.OPENAI_API_KEY;
 
-    // Return the exact state of everything right to the screen
+    // 1. Get Shopify Access Token via OAuth client_credentials
+    let tokenResponse;
+    try {
+      tokenResponse = await fetch(`https://${domain}/admin/oauth/access_token`, {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: new URLSearchParams({
+          grant_type: "client_credentials",
+          client_id: clientId,
+          client_secret: clientSecret,
+        })
+      });
+    } catch (err) {
+      return res.status(500).json({ error: "Failed to connect to Shopify OAuth endpoint", details: err.message });
+    }
+
+    const tokenData = await tokenResponse.json();
+    if (!tokenResponse.ok || !tokenData.access_token) {
+      return res.status(500).json({ error: "Shopify token request rejected", details: tokenData });
+    }
+    const accessToken = tokenData.access_token;
+
+    // 2. Call OpenAI to generate the blog post
+    let openaiResponse;
+    try {
+      openaiResponse = await fetch("https://api.openai.com/v1/chat/completions", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${openAiKey}`
+        },
+        body: JSON.stringify({
+          model: "gpt-4o-mini",
+          messages: [
+            {
+              role: "system",
+              content: "You are an expert pet care SEO copywriter for ModernPaws. Return valid JSON containing 'title', 'body' (in HTML format), and 'summary'."
+            },
+            {
+              role: "user",
+              content: "Write an engaging, SEO-optimized pet care blog post for dog owners. Return only JSON with keys: title, body, summary."
+            }
+          ],
+          response_format: { type: "json_object" }
+        })
+      });
+    } catch (err) {
+      return res.status(500).json({ error: "Failed to connect to OpenAI API", details: err.message });
+    }
+
+    const openaiData = await openaiResponse.json();
+    if (!openaiResponse.ok) {
+      return res.status(500).json({ error: "OpenAI API rejected request", details: openaiData });
+    }
+
+    const contentObj = JSON.parse(openaiData.choices[0].message.content);
+
+    // 3. Push to Shopify via GraphQL API
+    let shopifyResponse;
+    try {
+      shopifyResponse = await fetch(`https://${domain}/admin/api/2026-10/graphql.json`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-Shopify-Access-Token": accessToken
+        },
+        body: JSON.stringify({
+          query: `
+            mutation CreateArticle($article: ArticleCreateInput!) {
+              articleCreate(article: $article) {
+                article {
+                  id
+                  title
+                  handle
+                }
+                userErrors {
+                  field
+                  message
+                }
+              }
+            }
+          `,
+          variables: {
+            article: {
+              blogId: "gid://shopify/Blog/126944772470",
+              title: contentObj.title,
+              body: contentObj.body,
+              summary: contentObj.summary,
+              isPublished: true
+            }
+          }
+        })
+      });
+    } catch (err) {
+      return res.status(500).json({ error: "Failed to connect to Shopify GraphQL API", details: err.message });
+    }
+
+    const shopifyResult = await shopifyResponse.json();
+
     return res.status(200).json({
-      status: "Debug inspection",
-      SHOP_DOMAIN: domain || "UNDEFINED",
-      SHOPIFY_CLIENT_ID: clientId ? "Present (Length: " + clientId.length + ")" : "MISSING",
-      SHOPIFY_CLIENT_SECRET: clientSecret ? "Present (Length: " + clientSecret.length + ")" : "MISSING",
-      OPENAI_API_KEY: openAiKey ? "Present (Length: " + openAiKey.length + ")" : "MISSING",
-      testAuthUrl: `https://${domain}/admin/oauth/access_token`
+      success: true,
+      article: shopifyResult
     });
 
   } catch (error) {
