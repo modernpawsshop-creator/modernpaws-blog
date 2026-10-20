@@ -1,5 +1,16 @@
 export default async function handler(req, res) {
   try {
+    // Diagnostic check to see if environment variables are loading
+    if (!process.env.SHOP_DOMAIN || !process.env.SHOPIFY_CLIENT_ID || !process.env.SHOPIFY_CLIENT_SECRET || !process.env.OPENAI_API_KEY) {
+      return res.status(500).json({
+        error: "Missing environment variables on Vercel",
+        SHOP_DOMAIN: process.env.SHOP_DOMAIN || "MISSING",
+        SHOPIFY_CLIENT_ID: process.env.SHOPIFY_CLIENT_ID ? "Present" : "MISSING",
+        SHOPIFY_CLIENT_SECRET: process.env.SHOPIFY_CLIENT_SECRET ? "Present" : "MISSING",
+        OPENAI_API_KEY: process.env.OPENAI_API_KEY ? "Present" : "MISSING"
+      });
+    }
+
     const tokenResponse = await fetch(`https://${process.env.SHOP_DOMAIN}/admin/oauth/access_token`, {
       method: "POST",
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
@@ -14,7 +25,7 @@ export default async function handler(req, res) {
     const accessToken = tokenData.access_token;
 
     if (!accessToken) {
-      throw new Error("Failed to retrieve token from Shopify.");
+      return res.status(500).json({ error: "Shopify token request failed", details: tokenData });
     }
 
     const openaiResponse = await fetch("https://api.openai.com/v1/chat/completions", {
@@ -85,6 +96,6 @@ export default async function handler(req, res) {
 
   } catch (error) {
     console.error(error);
-    return res.status(500).json({ error: error.message });
+    return res.status(500).json({ error: error.message, stack: error.stack });
   }
 }
