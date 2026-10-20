@@ -5,7 +5,7 @@ export default async function handler(req, res) {
     const clientSecret = process.env.SHOPIFY_CLIENT_SECRET;
     const openAiKey = process.env.OPENAI_API_KEY;
 
-    // 1. Fetch Shopify Access Token safely
+    // --- Step 1: Get Shopify Access Token ---
     const tokenUrl = `https://${domain}/admin/oauth/access_token`;
     const tokenResponse = await fetch(tokenUrl, {
       method: "POST",
@@ -16,25 +16,14 @@ export default async function handler(req, res) {
         client_secret: clientSecret,
       })
     });
-
     const tokenText = await tokenResponse.text();
-    let tokenData;
-    try {
-      tokenData = JSON.parse(tokenText);
-    } catch (e) {
-      return res.status(500).json({
-        error: "Shopify OAuth endpoint did not return JSON",
-        status: tokenResponse.status,
-        responseText: tokenText.slice(0, 300)
-      });
-    }
-
+    const tokenData = JSON.parse(tokenText);
     if (!tokenResponse.ok || !tokenData.access_token) {
       return res.status(500).json({ error: "Shopify token request rejected", details: tokenData });
     }
     const accessToken = tokenData.access_token;
 
-    // 2. Call OpenAI safely
+    // --- Step 2: Use OpenAI to generate content AND an image prompt ---
     const openaiResponse = await fetch("https://api.openai.com/v1/chat/completions", {
       method: "POST",
       headers: {
@@ -42,40 +31,47 @@ export default async function handler(req, res) {
         "Authorization": `Bearer ${openAiKey}`
       },
       body: JSON.stringify({
-        model: "gpt-4o-mini",
+        model: "gpt-4o-mini", // User is already using gpt-4o-mini
         messages: [
           {
             role: "system",
-            content: "You are an expert pet care SEO copywriter for ModernPaws. Return valid JSON containing 'title', 'body' (in HTML format), and 'summary'."
+            content: "You are an expert pet care SEO copywriter for ModernPaws. Return valid JSON containing 'title', 'body' (in HTML format), 'summary', and a single-sentence DALL-E 3 prompt ('imagePrompt') for a photograph related to the post."
           },
           {
             role: "user",
-            content: "Write an engaging, SEO-optimized pet care blog post for dog owners. Return only JSON with keys: title, body, summary."
+            content: "Write an engaging, SEO-optimized pet care blog post for dog owners. Return only JSON with keys: title, body, summary, imagePrompt."
           }
         ],
         response_format: { type: "json_object" }
       })
     });
-
     const openaiText = await openaiResponse.text();
-    let openaiData;
-    try {
-      openaiData = JSON.parse(openaiText);
-    } catch (e) {
-      return res.status(500).json({
-        error: "OpenAI API did not return JSON",
-        status: openaiResponse.status,
-        responseText: openaiText.slice(0, 300)
-      });
-    }
-
-    if (!openaiResponse.ok) {
-      return res.status(500).json({ error: "OpenAI API rejected request", details: openaiData });
-    }
-
+    const openaiData = JSON.parse(openaiText);
     const contentObj = JSON.parse(openaiData.choices[0].message.content);
 
-    // 3. Push to Shopify GraphQL safely
+    // --- Step 3: Generate the Image using DALL-E 3 ---
+    const imageGenerationResponse = await fetch("https://api.openai.com/v1/images/generations", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${openAiKey}`
+      },
+      body: JSON.stringify({
+        model: "dall-e-3",
+        prompt: contentObj.imagePrompt,
+        n: 1,
+        size: "1024x1024",
+        response_format: "url"
+      })
+    });
+    const imageGenerationText = await imageGenerationResponse.text();
+    const imageGenerationData = JSON.parse(imageGenerationText);
+    if (!imageGenerationResponse.ok || !imageGenerationData.data || !imageGenerationData.data[0] || !imageGenerationData.data[0].url) {
+      return res.status(500).json({ error: "Image generation failed", details: imageGenerationData });
+    }
+    const generatedImageUrl = imageGenerationData.data[0].url;
+
+    // --- Step 4: Push to Shopify GraphQL with the image ---
     const graphqlUrl = `https://${domain}/admin/api/2026-10/graphql.json`;
     const shopifyResponse = await fetch(graphqlUrl, {
       method: "POST",
@@ -91,6 +87,10 @@ export default async function handler(req, res) {
                 id
                 title
                 handle
+                image {
+                  url
+                  altText
+                }
               }
               userErrors {
                 field
@@ -101,32 +101,27 @@ export default async function handler(req, res) {
         `,
         variables: {
           article: {
-            blogId: "gid://shopify/Blog/126944772470",
+            blogId: "gid://shopify/Blog/126944772470", // Keep user's blogId
             title: contentObj.title,
             body: contentObj.body,
             summary: contentObj.summary,
             author: { name: "ModernPaws" },
-            isPublished: true
+            isPublished: true,
+            image: { // NEW: Add image key with originalSource variable
+              originalSource: generatedImageUrl, 
+              altText: `Generated image for the blog post titled "${contentObj.title}"` 
+            }
           }
         }
       })
     });
-
     const shopifyText = await shopifyResponse.text();
-    let shopifyResult;
-    try {
-      shopifyResult = JSON.parse(shopifyText);
-    } catch (e) {
-      return res.status(500).json({
-        error: "Shopify GraphQL endpoint did not return JSON",
-        status: shopifyResponse.status,
-        responseText: shopifyText.slice(0, 300)
-      });
-    }
+    const shopifyResult = JSON.parse(shopifyText);
 
     return res.status(200).json({
       success: true,
-      article: shopifyResult
+      article: shopifyResult,
+      generatedImageUrl: generatedImageUrl // Also return the URL for easy verification
     });
 
   } catch (error) {
