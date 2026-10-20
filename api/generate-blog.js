@@ -23,7 +23,7 @@ export default async function handler(req, res) {
     }
     const accessToken = tokenData.access_token;
 
-    // --- Step 2: Use OpenAI to generate content AND an image prompt ---
+    // --- Step 2: Use OpenAI to generate blog content ---
     const openaiResponse = await fetch("https://api.openai.com/v1/chat/completions", {
       method: "POST",
       headers: {
@@ -35,11 +35,11 @@ export default async function handler(req, res) {
         messages: [
           {
             role: "system",
-            content: "You are an expert pet care SEO copywriter for ModernPaws. Return valid JSON containing 'title', 'body' (in HTML format), 'summary', and a single-sentence DALL-E 3 prompt ('imagePrompt') for a photograph related to the post."
+            content: "You are an expert pet care SEO copywriter for ModernPaws. Return valid JSON containing 'title', 'body' (in HTML format), and 'summary'."
           },
           {
             role: "user",
-            content: "Write an engaging, SEO-optimized pet care blog post for dog owners. Return only JSON with keys: title, body, summary, imagePrompt."
+            content: "Write an engaging, SEO-optimized pet care blog post for dog owners. Return only JSON with keys: title, body, summary."
           }
         ],
         response_format: { type: "json_object" }
@@ -49,28 +49,16 @@ export default async function handler(req, res) {
     const openaiData = JSON.parse(openaiText);
     const contentObj = JSON.parse(openaiData.choices[0].message.content);
 
-    // --- Step 3: Generate the Image using DALL-E 3 ---
-    const imageGenerationResponse = await fetch("https://api.openai.com/v1/images/generations", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "Authorization": `Bearer ${openAiKey}`
-      },
-      body: JSON.stringify({
-        model: "dall-e-3",
-        prompt: contentObj.imagePrompt,
-        n: 1,
-        size: "1024x1024"
-      })
-    });
-    const imageGenerationText = await imageGenerationResponse.text();
-    const imageGenerationData = JSON.parse(imageGenerationText);
-    if (!imageGenerationResponse.ok || !imageGenerationData.data || !imageGenerationData.data[0] || !imageGenerationData.data[0].url) {
-      return res.status(500).json({ error: "Image generation failed", details: imageGenerationData });
-    }
-    const generatedImageUrl = imageGenerationData.data[0].url;
+    // --- Step 3: Select a professional dog photo from Unsplash ---
+    const dogImages = [
+      "https://images.unsplash.com/photo-1543466835-00a7907e9de1?auto=format&fit=crop&w=1200&q=80",
+      "https://images.unsplash.com/photo-1583511655857-d19b40a7a54e?auto=format&fit=crop&w=1200&q=80",
+      "https://images.unsplash.com/photo-1537151608828-ea2b11777ee8?auto=format&fit=crop&w=1200&q=80",
+      "https://images.unsplash.com/photo-1517849845537-4d257902454a?auto=format&fit=crop&w=1200&q=80"
+    ];
+    const selectedImageUrl = dogImages[Math.floor(Math.random() * dogImages.length)];
 
-    // --- Step 4: Push to Shopify GraphQL with the image ---
+    // --- Step 4: Push to Shopify GraphQL with the featured image ---
     const graphqlUrl = `https://${domain}/admin/api/2026-10/graphql.json`;
     const shopifyResponse = await fetch(graphqlUrl, {
       method: "POST",
@@ -107,8 +95,8 @@ export default async function handler(req, res) {
             author: { name: "ModernPaws" },
             isPublished: true,
             image: {
-              originalSource: generatedImageUrl,
-              altText: `Generated image for the blog post titled "${contentObj.title}"`
+              originalSource: selectedImageUrl,
+              altText: `Featured image for ${contentObj.title}`
             }
           }
         }
@@ -119,8 +107,7 @@ export default async function handler(req, res) {
 
     return res.status(200).json({
       success: true,
-      article: shopifyResult,
-      generatedImageUrl: generatedImageUrl
+      article: shopifyResult
     });
 
   } catch (error) {
