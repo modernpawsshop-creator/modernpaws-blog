@@ -1,6 +1,22 @@
 export default async function handler(req, res) {
   try {
-    // 1. Call OpenAI to generate the SEO blog post
+    const tokenResponse = await fetch(`https://${process.env.SHOP_DOMAIN}/admin/oauth/access_token`, {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        grant_type: "client_credentials",
+        client_id: process.env.SHOPIFY_CLIENT_ID,
+        client_secret: process.env.SHOPIFY_CLIENT_SECRET,
+      })
+    });
+    
+    const tokenData = await tokenResponse.json();
+    const accessToken = tokenData.access_token;
+
+    if (!accessToken) {
+      throw new Error("Failed to retrieve token from Shopify.");
+    }
+
     const openaiResponse = await fetch("https://api.openai.com/v1/chat/completions", {
       method: "POST",
       headers: {
@@ -24,16 +40,13 @@ export default async function handler(req, res) {
     });
 
     const openaiData = await openaiResponse.json();
-    
-    // Parse OpenAI's response
     const contentObj = JSON.parse(openaiData.choices[0].message.content);
 
-    // 2. Push the article to Shopify via GraphQL
     const shopifyResponse = await fetch(`https://${process.env.SHOP_DOMAIN}/admin/api/2026-10/graphql.json`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "X-Shopify-Access-Token": process.env.SHOPIFY_ACCESS_TOKEN
+        "X-Shopify-Access-Token": accessToken
       },
       body: JSON.stringify({
         query: `
