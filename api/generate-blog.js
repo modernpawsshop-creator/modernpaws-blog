@@ -31,7 +31,7 @@ export default async function handler(req, res) {
         "Authorization": `Bearer ${openAiKey}`
       },
       body: JSON.stringify({
-        model: "gpt-4o-mini", // User is already using gpt-4o-mini
+        model: "gpt-4o-mini",
         messages: [
           {
             role: "system",
@@ -60,8 +60,7 @@ export default async function handler(req, res) {
         model: "dall-e-3",
         prompt: contentObj.imagePrompt,
         n: 1,
-        size: "1024x1024",
-        response_format: "url"
+        size: "1024x1024"
       })
     });
     const imageGenerationText = await imageGenerationResponse.text();
@@ -101,15 +100,15 @@ export default async function handler(req, res) {
         `,
         variables: {
           article: {
-            blogId: "gid://shopify/Blog/126944772470", // Keep user's blogId
+            blogId: "gid://shopify/Blog/126944772470",
             title: contentObj.title,
             body: contentObj.body,
             summary: contentObj.summary,
             author: { name: "ModernPaws" },
             isPublished: true,
-            image: { // NEW: Add image key with originalSource variable
-              originalSource: generatedImageUrl, 
-              altText: `Generated image for the blog post titled "${contentObj.title}"` 
+            image: {
+              originalSource: generatedImageUrl,
+              altText: `Generated image for the blog post titled "${contentObj.title}"`
             }
           }
         }
@@ -121,7 +120,7 @@ export default async function handler(req, res) {
     return res.status(200).json({
       success: true,
       article: shopifyResult,
-      generatedImageUrl: generatedImageUrl // Also return the URL for easy verification
+      generatedImageUrl: generatedImageUrl
     });
 
   } catch (error) {
