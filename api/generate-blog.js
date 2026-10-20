@@ -95,7 +95,7 @@ export default async function handler(req, res) {
             author: { name: "ModernPaws" },
             isPublished: true,
             image: {
-              originalSource: selectedImageUrl,
+              src: selectedImageUrl,
               altText: `Featured image for ${contentObj.title}`
             }
           }
