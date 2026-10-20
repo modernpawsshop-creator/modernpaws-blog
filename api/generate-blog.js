@@ -25,7 +25,7 @@ export default async function handler(req, res) {
       return res.status(500).json({
         error: "Shopify OAuth endpoint did not return JSON",
         status: tokenResponse.status,
-        responseText: tokenText.slice(0, 300) // snippet of HTML or text received
+        responseText: tokenText.slice(0, 300)
       });
     }
 
@@ -105,6 +105,7 @@ export default async function handler(req, res) {
             title: contentObj.title,
             body: contentObj.body,
             summary: contentObj.summary,
+            author: { name: "ModernPaws" },
             isPublished: true
           }
         }
